@@ -372,6 +372,7 @@ class Server(object):
         self._stateTimeout=0
 
         self._messageServer=None
+        self.onInit()
 
     @property
     def logger(self):
@@ -405,6 +406,9 @@ class Server(object):
                     return True
                 # reject stream incoherence
                 self.resetState()
+
+    def onInit(self):
+        pass
 
     def manager(self):
         # ESPA state machine
