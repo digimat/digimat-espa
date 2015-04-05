@@ -1,20 +1,16 @@
 import time
-import struct
-import serial
-from threading import Event
 import logging, logging.handlers
 
-# pyserial docs
-# http://pyserial.sourceforge.net/pyserial_api.html
+from threading import Thread
+from threading import Event
+from Queue import Queue
 
-# list available ports
-# python -m serial.tools.list_ports
+from notification import Notification, NotificationCallToPager, NotificationLinkTimeout
 
-# miniterm
-# python -m serial.tools.miniterm <port name> [-h]
+# Communication Protocol ESPA 4.4.4
+# http://www.gscott.co.uk/ESPA.4.4.4/datablock.html
 
-
-ESPA_CLIENT_ACTIVITY_TIMEOUT = 240
+ESPA_CLIENT_ACTIVITY_TIMEOUT = 120
 
 ESPA_CHAR_SOH   = '\x01'
 ESPA_CHAR_STX   = '\x02'
@@ -27,143 +23,13 @@ ESPA_CHAR_US    = '\x1F'
 ESPA_CHAR_RS    = '\x1E'
 
 
-class Notification(object):
-    def __init__(self, title, data):
-        self._title=title
-        self._data=data
-
-    @property
-    def title(self):
-        return self._title
-
-    @property
-    def data(self):
-        return self._data
-
-    def __getitem__(self, key):
-        try:
-            return self._data[key]
-        except:
-            pass
-
-    def validate(self):
-        return False
-
-
-class NotificationCallToPager(Notification):
-    def __init__(self, data):
-        super(NotificationCallToPager, self).__init__('calltopager', data)
-
-    @property
-    def callAddress(self):
-        return self['1']
-
-    @property
-    def message(self):
-        return self['2']
-
-    def validate(self):
-        if self.callAddress and self.message:
-            return True
-
-
-class Link(object):
-    def __init__(self):
-        self._logger=None
-
-    def setLogger(self, logger):
-        self._logger=logger
-
-    @property
-    def logger(self):
-        return self._logger
-
-    def open(self):
-        pass
-
-    def reset(self):
-        self.read()
-
-    def close(self):
-        pass
-
-    def read(self):
-        return None
-
-    def write(self, data):
-        return False
-
-
-class LinkSerial(Link):
-    def __init__(self, port, baudrate, parity=serial.PARITY_NONE, datasize=serial.EIGHTBITS, stopbits=serial.STOPBITS_ONE):
-        super(LinkSerial, self).__init__()
-        self._serial=None
-        self._port=port
-        self._baudrate=baudrate
-        self._parity=parity
-        self._datasize=datasize
-        self._stopbits=stopbits
-        self._reopenTimeout=0
-
-    def rtscts(self, enable=True):
-        self._serial.rtscts=int(enable)
-
-    def open(self):
-        if self._serial:
-            return True
-        try:
-            if time.time()>self._reopenTimeout:
-                self._reopenTimeout=time.time()+15
-                self.logger.info('open(%s)' % (self._port))
-
-                s=serial.Serial(port=self._port,
-                    baudrate=self._baudrate,
-                    parity=self._parity,
-                    stopbits=self._stopbits,
-                    bytesize=self._datasize)
-
-                s.timeout=0
-                s.writeTimeout=0
-
-                self._serial=s
-                self.logger.info('port opened')
-
-                return True
-        except:
-            self.logger.exception('open()')
-            self._serial=None
-
-    def close(self):
-        try:
-            self.logger.info('close()')
-            #return self._serial.close()
-        except:
-            pass
-        self._serial=None
-
-    def read(self, size=255):
-        try:
-            if self.open():
-                if size>0:
-                    return bytearray(self._serial.read(size))
-        except:
-            self.logger.exception('read()')
-            self.close()
-
-    def write(self, data):
-        try:
-            if self.open():
-                return self._serial.write(data)
-        except:
-            self.logger.exception('write()')
-            self.close()
-
-
-class Channel(object):
+class CommunicationChannel(object):
     def __init__(self, link, logger):
         self._logger=logger
         link.setLogger(logger)
         self._link=link
+        self._dead=False
+        self._eventDead=Event()
         self._activityTimeout=time.time()+ESPA_CLIENT_ACTIVITY_TIMEOUT
         self._inbuf=None
         self.reset()
@@ -171,6 +37,22 @@ class Channel(object):
     @property
     def logger(self):
         return self._logger
+
+    @property
+    def name(self):
+        return self._link.name
+
+    def setDead(self, state=True):
+        if state and not self._eventDead.isSet():
+            self._eventDead.set()
+        self._dead=bool(state)
+
+    def isDeadEvent(self, reset=True):
+        e=self._eventDead.isSet()
+        if e:
+            if reset:
+                self._eventDead.clear()
+            return True
 
     def dataToString(self, data):
         try:
@@ -192,18 +74,23 @@ class Channel(object):
     def receive(self, size=0):
         if time.time()>self._activityTimeout:
             self.logger.warning('client activity timeout !')
+            self.setDead(True)
             self.close()
             self._activityTimeout=time.time()+60
 
-        data=self._link.read()
-        if data:
-            self.logger.info('RX[%s]' % self.dataToString(data))
-            self._inbuf.extend(data)
-            self._activityTimeout=time.time()+ESPA_CLIENT_ACTIVITY_TIMEOUT
+        bufsize=len(self._inbuf)
+
+        if size==0 or size>bufsize:
+            # fill the input buffer
+            data=self._link.read()
+            if data:
+                self.logger.debug('RX[%s]' % self.dataToString(data))
+                self._inbuf.extend(data)
+                self._activityTimeout=time.time()+ESPA_CLIENT_ACTIVITY_TIMEOUT
 
         try:
             if size>0:
-                if len(self._inbuf)>=size:
+                if bufsize>=size:
                     data=self._inbuf[:size]
                     self._inbuf=self._inbuf[size:]
                     return data
@@ -217,15 +104,11 @@ class Channel(object):
     def receiveByte(self):
         return self.receive(1)
 
-    # def waitByte(self, b):
-    #     if b and b==self.receiveByte():
-    #         return True
-
     def send(self, data):
         if data:
             if type(data)==type(''):
                 data=bytearray(data)
-            self.logger.info('TX[%s]' % self.dataToString(data))
+            self.logger.debug('TX[%s]' % self.dataToString(data))
             return self._link.write(data)
 
     def sendByte(self, b):
@@ -257,6 +140,10 @@ class MessageServer(object):
     def logger(self):
         return self._logger
 
+    @property
+    def channel(self):
+        return self._channel
+
     def setTimeout(self, timeout):
         if timeout is not None:
             self._stateTimeout=time.time()+timeout
@@ -274,14 +161,14 @@ class MessageServer(object):
 
     def waitByte(self, b):
         if b:
-            data=self._channel.receiveByte()
+            data=self.channel.receiveByte()
             if data:
                 if b==data:
                     return True
                 # reject stream incoherence
                 self.abort()
 
-    def manager(self):
+    def stateMachineManager(self):
         if self._state!=0 and time.time()>=self._stateTimeout:
             self.logger.warning('message state %d timeout!' % self._state)
             return False
@@ -302,8 +189,8 @@ class MessageServer(object):
         # wait for block <data>+<ETX>
         elif self._state==2:
             while True:
-                b=self._channel.receiveByte()
-                if not b:
+                b=self.channel.receiveByte()
+                if b is not None:
                     break
                 self._bcc ^= ord(b)
                 if b==ESPA_CHAR_ETX:
@@ -315,7 +202,7 @@ class MessageServer(object):
         # --------------------------------------
         # wait for 'BCC'
         elif self._state==3:
-            b=self._channel.receiveByte()
+            b=self.channel.receiveByte()
             if b:
                 if ord(b)==self._bcc:
                     self.logger.debug('<BCC>OK')
@@ -340,12 +227,12 @@ class MessageServer(object):
 
                     notification=None
                     if header=='1':
-                        notification=NotificationCallToPager(data)
+                        notification=NotificationCallToPager(self.channel.name, self._data)
                     else:
                         # '2'=Status Information,
                         # '3'=Status Request,
                         # '4'=Call subscriber line
-                        self.logger.warning('unsupported function [%s]' % header)
+                        self.logger.warning('yet unsupported function [%s]' % header)
 
                     if notification:
                         if notification.validate():
@@ -354,9 +241,11 @@ class MessageServer(object):
                 self.logger.exception('decodeBuffer()')
 
 
-class Server(object):
-    def __init__(self, link, contolEquipmentAddress='1', pageingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
-        logger=logging.getLogger("ESPASERVER")
+
+class Communicator(object):
+    def __init__(self, name, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
+        self._name=name
+        logger=logging.getLogger("ESPA:%s:%s" % (name, link.name))
         logger.setLevel(logLevel)
         socketHandler = logging.handlers.SocketHandler(logServer,
             logging.handlers.DEFAULT_TCP_LOGGING_PORT)
@@ -364,23 +253,65 @@ class Server(object):
         self._logger=logger
 
         self._controlEquipmentAddress=contolEquipmentAddress
-        self._pageingSystemAddress=pageingSystemAddress
+        self._pagingSystemAddress=pagingSystemAddress
 
-        self._channel=Channel(link, self._logger)
+        self._channel=CommunicationChannel(link, self._logger)
+        
         self._eventStop=Event()
-        self._state=0
-        self._stateTimeout=0
+        self._thread=Thread(target=self._manager)
+        self._thread.daemon=True    
 
-        self._messageServer=None
-        self.onInit()
+        self._queueNotifications=Queue()
 
     @property
     def logger(self):
         return self._logger
 
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def channel(self):
+        return self._channel
+
+    def start(self):
+        self.logger.info('starting thread manager')
+        self._thread.start()
+
     def stop(self):
         if not self._eventStop.isSet():
             self._eventStop.set()
+
+    def notify(self, notification):
+        if notification and isinstance(notification, Notification):
+            self._queueNotifications.put(notification)
+
+    def getNotification(self):
+        try:
+            return self._queueNotifications.get(False)
+        except:
+            pass  
+
+    def _manager(self):
+        self.stop()
+
+    def isRunning(self):
+        return not self._eventStop.isSet()  
+
+    def waitForExit(self):
+        self.stop()
+        self.logger.debug("wait for thread termination")
+        self._thread.join()
+        self.logger.info("done")        
+
+
+class Server(Communicator):
+    def __init__(self, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
+        super(Server, self).__init__('SERVER', link, contolEquipmentAddress, pagingSystemAddress, logServer, logLevel)
+        self._state=0
+        self._stateTimeout=0
+        self._messageServer=None
 
     def setTimeout(self, timeout):
         if timeout is not None:
@@ -395,22 +326,19 @@ class Server(object):
         self.setState(self._state+1, timeout)
 
     def resetState(self):
-        self._channel.eot()
+        self.channel.eot()
         self.setState(0)
 
     def waitByte(self, b):
         if b:
-            data=self._channel.receiveByte()
+            data=self.channel.receiveByte()
             if data:
                 if b==data:
                     return True
                 # reject stream incoherence
                 self.resetState()
 
-    def onInit(self):
-        pass
-
-    def manager(self):
+    def stateMachineManager(self):
         # ESPA state machine
         if self._state!=0 and time.time()>=self._stateTimeout:
             self.logger.warning('state %d timeout!' % self._state)
@@ -419,7 +347,7 @@ class Server(object):
         # --------------------------------------
         # reset
         if self._state==0:
-            self._channel.reset()
+            self.channel.reset()
             self._messageServer=None
             self.setNextState(60)
             self.logger.debug('WAITING FOR <1>')
@@ -440,53 +368,68 @@ class Server(object):
         # --------------------------------------
         # wait for '2'
         elif self._state==3:
-            if self.waitByte(self._pageingSystemAddress):
+            if self.waitByte(self._pagingSystemAddress):
                 self.setNextState()
                 self.logger.debug('<2>OK, WAITING FOR <ENQ>')
         # --------------------------------------
         # wait for 'ENQ'
         elif self._state==4:
             if self.waitByte(ESPA_CHAR_ENQ):
-                self._channel.ack()
+                self.channel.ack()
+                self.channel.setDead(False)
                 self.setNextState(15.0)
                 self.logger.debug('<ENQ>OK, WAITING FOR <MESSAGE>')
-                self._messageServer=MessageServer(self._channel, self._logger)
+                self._messageServer=MessageServer(self.channel, self._logger)
         # --------------------------------------
         # manage espa message transaction
         elif self._state==5:
             if self._messageServer:
-                notification=self._messageServer.manager()
-                # Notification=completed, False=Failed, None=processing
+                notification=self._messageServer.stateMachineManager()
+
+                # "notification" content is a bit unusual:
+                # if content is something (a Notification) : job completed
+                # if content is False : job terminated, but failed
+                # if content is None : job is running (come back later)
+
                 if notification:
-                    self.onNotify(notification)
-                    self._channel.ack()
+                    self.logger.info(str(notification))
+                    self.notify(notification)
+                    self.channel.ack()
                     self.resetState()
                 elif notification is False:
-                    self._channel.sendByte(self._controlEquipmentAddress)
-                    self._channel.nak()
+                    self.channel.sendByte(self._controlEquipmentAddress)
+                    self.channel.nak()
                     self.resetState()
+                else:
+                    pass
         # --------------------------------------
         # bad state
         else:
             self.resetState()
 
-    def onNotify(self, notification):
-        return True
-
-    def run(self):
-        self._channel.open()
+    def _manager(self):
+        self.channel.open()
 
         while not self._eventStop.isSet():
             try:
-                self.manager()
+                self.stateMachineManager()
+                if self.channel.isDeadEvent():
+                    self.notify(NotificationLinkTimeout(self.channel.name))
                 time.sleep(0.1)
-            except KeyboardInterrupt:
-                self.stop()
             except:
                 self.logger.exception('run()')
                 self.stop()
 
-        self._channel.close()
+        self.channel.close()
+
+
+class Client(Communicator):
+    def __init__(self, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
+        super(Server, self).__init__('CLIENT', link, contolEquipmentAddress, pagingSystemAddress, logServer, logLevel)
+        # TODO:
+
+
+
 
 
 if __name__=='__main__':

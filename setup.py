@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='digimat.espa',
-    version='0.1.0',
+    version='0.1.2',
     description='Digimat Espa 4.4.4 Client/Server',
     namespace_packages=['digimat'],
     author='Frederic Hess',
