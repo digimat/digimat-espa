@@ -245,6 +245,7 @@ class MessageServer(object):
 class Communicator(object):
     def __init__(self, name, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
         self._name=name
+
         logger=logging.getLogger("ESPA:%s:%s" % (name, link.name))
         logger.setLevel(logLevel)
         socketHandler = logging.handlers.SocketHandler(logServer,
@@ -256,10 +257,10 @@ class Communicator(object):
         self._pagingSystemAddress=pagingSystemAddress
 
         self._channel=CommunicationChannel(link, self._logger)
-        
+
         self._eventStop=Event()
         self._thread=Thread(target=self._manager)
-        self._thread.daemon=True    
+        self._thread.daemon=True
 
         self._queueNotifications=Queue()
 
@@ -291,19 +292,19 @@ class Communicator(object):
         try:
             return self._queueNotifications.get(False)
         except:
-            pass  
+            pass
 
     def _manager(self):
         self.stop()
 
     def isRunning(self):
-        return not self._eventStop.isSet()  
+        return not self._eventStop.isSet()
 
     def waitForExit(self):
         self.stop()
         self.logger.debug("wait for thread termination")
         self._thread.join()
-        self.logger.info("done")        
+        self.logger.info("done")
 
 
 class Server(Communicator):
@@ -423,11 +424,52 @@ class Server(Communicator):
         self.channel.close()
 
 
+class MultiChannelServer(object):
+    def __init__(self):
+        self._servers={}
+
+    def add(self, server):
+        if server and isinstance(server, Server):
+            self._servers[server.name]=server
+
+    def onNotification(self, notification):
+        print notification
+        if notification.isName('calltopager'):
+            print "[%s]->paging(%s) with message <%s>..." % (notification.source,
+                notification.callAddress,
+                notification.message)
+
+    def servers(self):
+        return self._servers.values()
+
+    def run(self):
+        stop=False
+        for server in self.servers():
+            server.start()
+
+        while not stop:
+            try:
+                for server in self.servers():
+                    if server.isRunning():
+                        notification=server.getNotification()
+                        if notification:
+                            self.onNotification(notification)
+                    else:
+                        stop=True
+                time.sleep(0.1)
+            except:
+                stop=True
+                for server in self.servers():
+                    server.stop()
+
+        for server in self.servers():
+            server.waitForExit()
+
+
 class Client(Communicator):
     def __init__(self, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
         super(Server, self).__init__('CLIENT', link, contolEquipmentAddress, pagingSystemAddress, logServer, logLevel)
         # TODO:
-
 
 
 

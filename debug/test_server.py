@@ -1,21 +1,22 @@
 import time
-from digimat.espa import Server, LinkSerial
+from digimat.espa import LinkSerial, Server, MultiChannelServer
 
-link=LinkSerial('alarming', 'COM5', 9600, 'N', 8, 1)
-server=Server(link)
 
-server.start()
+class MyMultiChannelServer(MultiChannelServer):
+    def onNotification(self, notification):
+        print notification
+        if notification.isName('calltopager'):
+            print "[%s]->paging(%s) with message <%s>..." % (notification.source,
+                 notification.callAddress,
+                 notification.message)
 
-while server.isRunning():
-	try:
-		notification=server.getNotification()
-		if notification:
-			print notification
-			if notification.isName('calltopager'):
-				print "--> paging(%s) with message <%s>..." % (notification.callAddress, notification.message)
 
-		time.sleep(0.2)
-	except:
-		server.stop()
+servers=MyMultiChannelServer()
 
-server.waitForExit()
+link=LinkSerial('ts940', 'COM5', 9600, 'N', 8, 1)
+servers.add(Server(link))
+
+link=LinkSerial('espa2', 'COM6', 9600, 'N', 8, 1)
+servers.add(Server(link))
+
+servers.run()
