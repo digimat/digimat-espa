@@ -79,7 +79,6 @@ class CommunicationChannel(object):
             self._activityTimeout=time.time()+60
 
         bufsize=len(self._inbuf)
-
         if size==0 or size>bufsize:
             # fill the input buffer
             data=self._link.read()
@@ -97,12 +96,15 @@ class CommunicationChannel(object):
             else:
                 data=self._inbuf
                 self._inbuf=bytearray()
-            return data
+                return data
         except:
             pass
 
-    def receiveByte(self):
-        return self.receive(1)
+    def receiveChar(self):
+        try:
+            return chr(self.receive(1)[0])
+        except:
+            pass
 
     def send(self, data):
         if data:
@@ -111,20 +113,20 @@ class CommunicationChannel(object):
             self.logger.debug('TX[%s]' % self.dataToString(data))
             return self._link.write(data)
 
-    def sendByte(self, b):
-        self.send(bytearray(b))
+    def sendChar(self, c):
+        self.send(bytearray(c))
 
     def ack(self):
         self.logger.debug('>ACK')
-        self.sendByte(ESPA_CHAR_ACK)
+        self.sendChar(ESPA_CHAR_ACK)
 
     def eot(self):
         self.logger.debug('>EOT')
-        self.sendByte(ESPA_CHAR_EOT)
+        self.sendChar(ESPA_CHAR_EOT)
 
     def nak(self):
         self.logger.debug('>NAK')
-        self.sendByte(ESPA_CHAR_NAK)
+        self.sendChar(ESPA_CHAR_NAK)
 
 
 class MessageServer(object):
@@ -159,12 +161,15 @@ class MessageServer(object):
     def abort(self):
         self.setState(-1)
 
-    def waitByte(self, b):
-        if b:
-            data=self.channel.receiveByte()
+    def waitChar(self, c):
+        if c:
+            data=self.channel.receiveChar()
             if data:
-                if b==data:
-                    return True
+                try:
+                    if c==data:
+                        return True
+                except:
+                    pass
                 # reject stream incoherence
                 self.abort()
 
@@ -180,7 +185,7 @@ class MessageServer(object):
         # --------------------------------------
         # wait for 'SOH'
         elif self._state==1:
-            if self.waitByte(ESPA_CHAR_SOH):
+            if self.waitChar(ESPA_CHAR_SOH):
                 self._inbuf=bytearray()
                 self._bcc=0
                 self.setNextState(3.0)
@@ -189,22 +194,22 @@ class MessageServer(object):
         # wait for block <data>+<ETX>
         elif self._state==2:
             while True:
-                b=self.channel.receiveByte()
-                if b is not None:
+                c=self.channel.receiveChar()
+                if c is None:
                     break
-                self._bcc ^= ord(b)
-                if b==ESPA_CHAR_ETX:
+                self._bcc ^= ord(c)
+                if c==ESPA_CHAR_ETX:
                     self.logger.debug('<ETX>OK, WAITING FOR BCC')
                     self.setNextState()
                     break
                 else:
-                    self._inbuf.extend(b)
+                    self._inbuf.extend(c)
         # --------------------------------------
         # wait for 'BCC'
         elif self._state==3:
-            b=self.channel.receiveByte()
-            if b:
-                if ord(b)==self._bcc:
+            c=self.channel.receiveChar()
+            if c:
+                if ord(c)==self._bcc:
                     self.logger.debug('<BCC>OK')
                     return self.decodeBuffer(self._inbuf)
                 self.logger.error('<BCC>invalid')
@@ -227,7 +232,7 @@ class MessageServer(object):
 
                     notification=None
                     if header=='1':
-                        notification=NotificationCallToPager(self.channel.name, self._data)
+                        notification=NotificationCallToPager(self.channel.name, data)
                     else:
                         # '2'=Status Information,
                         # '3'=Status Request,
@@ -241,12 +246,9 @@ class MessageServer(object):
                 self.logger.exception('decodeBuffer()')
 
 
-
 class Communicator(object):
-    def __init__(self, name, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
-        self._name=name
-
-        logger=logging.getLogger("ESPA:%s:%s" % (name, link.name))
+    def __init__(self, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
+        logger=logging.getLogger("ESPA-SERVER:%s" % link.name)
         logger.setLevel(logLevel)
         socketHandler = logging.handlers.SocketHandler(logServer,
             logging.handlers.DEFAULT_TCP_LOGGING_PORT)
@@ -270,7 +272,7 @@ class Communicator(object):
 
     @property
     def name(self):
-        return self._name
+        return self.channel.name
 
     @property
     def channel(self):
@@ -309,7 +311,7 @@ class Communicator(object):
 
 class Server(Communicator):
     def __init__(self, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
-        super(Server, self).__init__('SERVER', link, contolEquipmentAddress, pagingSystemAddress, logServer, logLevel)
+        super(Server, self).__init__(link, contolEquipmentAddress, pagingSystemAddress, logServer, logLevel)
         self._state=0
         self._stateTimeout=0
         self._messageServer=None
@@ -330,12 +332,15 @@ class Server(Communicator):
         self.channel.eot()
         self.setState(0)
 
-    def waitByte(self, b):
-        if b:
-            data=self.channel.receiveByte()
+    def waitChar(self, c):
+        if c:
+            data=self.channel.receiveChar()
             if data:
-                if b==data:
-                    return True
+                try:
+                    if c==data:
+                        return True
+                except:
+                    pass
                 # reject stream incoherence
                 self.resetState()
 
@@ -355,7 +360,7 @@ class Server(Communicator):
         # --------------------------------------
         # wait for '1'
         elif self._state==1:
-            if self.waitByte(self._controlEquipmentAddress):
+            if self.waitChar(self._controlEquipmentAddress):
                 # from here we let 2500ms to get the initial
                 # '1' + ENQ + '2' + ENQ sequence
                 self.setNextState(2.5)
@@ -363,19 +368,19 @@ class Server(Communicator):
         # --------------------------------------
         # wait for 'ENQ'
         elif self._state==2:
-            if self.waitByte(ESPA_CHAR_ENQ):
+            if self.waitChar(ESPA_CHAR_ENQ):
                 self.setNextState()
                 self.logger.debug('<ENQ>OK, WAITING FOR <2>')
         # --------------------------------------
         # wait for '2'
         elif self._state==3:
-            if self.waitByte(self._pagingSystemAddress):
+            if self.waitChar(self._pagingSystemAddress):
                 self.setNextState()
                 self.logger.debug('<2>OK, WAITING FOR <ENQ>')
         # --------------------------------------
         # wait for 'ENQ'
         elif self._state==4:
-            if self.waitByte(ESPA_CHAR_ENQ):
+            if self.waitChar(ESPA_CHAR_ENQ):
                 self.channel.ack()
                 self.channel.setDead(False)
                 self.setNextState(15.0)
@@ -398,7 +403,7 @@ class Server(Communicator):
                     self.channel.ack()
                     self.resetState()
                 elif notification is False:
-                    self.channel.sendByte(self._controlEquipmentAddress)
+                    self.channel.sendChar(self._controlEquipmentAddress)
                     self.channel.nak()
                     self.resetState()
                 else:
@@ -443,35 +448,34 @@ class MultiChannelServer(object):
         return self._servers.values()
 
     def run(self):
-        stop=False
-        for server in self.servers():
-            server.start()
+        if self._servers:
+            stop=False
+            for server in self.servers():
+                server.start()
 
-        while not stop:
-            try:
-                for server in self.servers():
-                    if server.isRunning():
-                        notification=server.getNotification()
-                        if notification:
-                            self.onNotification(notification)
-                    else:
-                        stop=True
-                time.sleep(0.1)
-            except:
-                stop=True
-                for server in self.servers():
-                    server.stop()
+            while not stop:
+                try:
+                    for server in self.servers():
+                        if server.isRunning():
+                            notification=server.getNotification()
+                            if notification:
+                                self.onNotification(notification)
+                        else:
+                            stop=True
+                    time.sleep(0.1)
+                except:
+                    stop=True
+                    for server in self.servers():
+                        server.stop()
 
-        for server in self.servers():
-            server.waitForExit()
+            for server in self.servers():
+                server.waitForExit()
 
 
 class Client(Communicator):
     def __init__(self, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
         super(Server, self).__init__('CLIENT', link, contolEquipmentAddress, pagingSystemAddress, logServer, logLevel)
         # TODO:
-
-
 
 
 if __name__=='__main__':

@@ -1,5 +1,6 @@
 import time
 import serial
+from serial.tools import list_ports
 
 # pyserial docs
 # http://pyserial.sourceforge.net/pyserial_api.html
@@ -9,6 +10,12 @@ import serial
 
 # miniterm
 # python -m serial.tools.miniterm <port name> [-h]
+
+# PL2303 OSX drivers
+# http://www.prolific.com.tw/us/showproduct.aspx?p_id=229&pcid=41
+
+# FTDI drivers
+# http://www.ftdichip.com/Drivers/VCP.htm
 
 
 class Link(object):
@@ -66,7 +73,7 @@ class LinkSerial(Link):
 
     @classmethod
     def listPorts(cls):
-        return serial.tools.list_ports.comports()
+        return list_ports.comports()
 
     def open(self):
         if self._serial:
@@ -85,6 +92,8 @@ class LinkSerial(Link):
                 s.timeout=0
                 try:
                     s.writeTimeout=0
+                    s.setDTR()
+                    s.setCTS()
                 except:
                     pass
 
@@ -99,6 +108,8 @@ class LinkSerial(Link):
     def close(self):
         try:
             self.logger.info('close(%s)' % self._url)
+            self._serial.setDTR(0)
+            self._serial.setCTS(0)
             self._serial.close()
         except:
             pass
