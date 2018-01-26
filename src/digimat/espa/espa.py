@@ -4,7 +4,7 @@ import logging.handlers
 
 from threading import Thread
 from threading import Event
-from Queue import Queue
+from queue import Queue
 
 from notification import Notification, NotificationCallToPager, NotificationLinkTimeout
 
@@ -109,13 +109,13 @@ class CommunicationChannel(object):
 
     def send(self, data):
         if data:
-            if isinstance(data, basestring):
+            if isinstance(data, str):
                 data=bytearray(data)
             self.logger.debug('TX[%s]' % self.dataToString(data))
             return self._link.write(data)
 
     def sendChar(self, c):
-        self.send(bytearray(c))
+        self.send(bytearray(c, 'utf8'))
 
     def ack(self):
         self.logger.debug('>ACK')
@@ -204,7 +204,7 @@ class MessageServer(object):
                     self.setNextState()
                     break
                 else:
-                    self._inbuf.extend(c)
+                    self._inbuf.extend(c.encode())
         # --------------------------------------
         # wait for 'BCC'
         elif self._state==3:
@@ -223,7 +223,7 @@ class MessageServer(object):
     def decodeBuffer(self, buf):
         if buf:
             try:
-                (header, body)=buf.split(ESPA_CHAR_STX)
+                (header, body)=buf.decode('ascii').split(ESPA_CHAR_STX)
                 if header and body:
                     data={}
                     for record in body.split(ESPA_CHAR_RS):
@@ -248,15 +248,14 @@ class MessageServer(object):
 
 
 class Communicator(object):
-    def __init__(self, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
+    def __init__(self, link, controlEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
         logger=logging.getLogger("ESPA-SERVER:%s" % link.name)
         logger.setLevel(logLevel)
-        socketHandler = logging.handlers.SocketHandler(logServer,
-            logging.handlers.DEFAULT_TCP_LOGGING_PORT)
-        logger.addHandler(socketHandler)
+        fileHandler = logging.FileHandler("%s.log" % link.name)
+        logger.addHandler(fileHandler)
         self._logger=logger
 
-        self._controlEquipmentAddress=contolEquipmentAddress
+        self._controlEquipmentAddress=controlEquipmentAddress
         self._pagingSystemAddress=pagingSystemAddress
 
         self._channel=CommunicationChannel(link, self._logger)
@@ -439,11 +438,11 @@ class MultiChannelServer(object):
             self._servers[server.name]=server
 
     def onNotification(self, notification):
-        print notification
+        print(notification)
         if notification.isName('calltopager'):
-            print "[%s]->paging(%s) with message <%s>..." % (notification.source,
+            print("[%s]->paging(%s) with message <%s>..." % (notification.source,
                 notification.callAddress,
-                notification.message)
+                notification.message))
 
     def servers(self):
         return self._servers.values()
