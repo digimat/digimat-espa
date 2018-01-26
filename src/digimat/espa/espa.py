@@ -1,5 +1,6 @@
 import time
-import logging, logging.handlers
+import logging
+import logging.handlers
 
 from threading import Thread
 from threading import Event
@@ -12,15 +13,15 @@ from notification import Notification, NotificationCallToPager, NotificationLink
 
 ESPA_CLIENT_ACTIVITY_TIMEOUT = 120
 
-ESPA_CHAR_SOH   = '\x01'
-ESPA_CHAR_STX   = '\x02'
-ESPA_CHAR_ETX   = '\x03'
-ESPA_CHAR_ENQ   = '\x05'
-ESPA_CHAR_ACK   = '\x06'
-ESPA_CHAR_NAK   = '\x15'
-ESPA_CHAR_EOT   = '\x04'
-ESPA_CHAR_US    = '\x1F'
-ESPA_CHAR_RS    = '\x1E'
+ESPA_CHAR_SOH = '\x01'
+ESPA_CHAR_STX = '\x02'
+ESPA_CHAR_ETX = '\x03'
+ESPA_CHAR_ENQ = '\x05'
+ESPA_CHAR_ACK = '\x06'
+ESPA_CHAR_NAK = '\x15'
+ESPA_CHAR_EOT = '\x04'
+ESPA_CHAR_US = '\x1F'
+ESPA_CHAR_RS = '\x1E'
 
 
 class CommunicationChannel(object):
@@ -108,7 +109,7 @@ class CommunicationChannel(object):
 
     def send(self, data):
         if data:
-            if type(data)==type(''):
+            if isinstance(data, basestring):
                 data=bytearray(data)
             self.logger.debug('TX[%s]' % self.dataToString(data))
             return self._link.write(data)
@@ -480,4 +481,3 @@ class Client(Communicator):
 
 if __name__=='__main__':
     pass
-

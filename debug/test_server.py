@@ -15,7 +15,7 @@ servers=MyMultiChannelServer()
 link=LinkSerial('ts940', 'COM1', 9600, 'N', 8, 1)
 servers.add(Server(link))
 
-link=LinkSerial('espa2', 'COM4', 9600, 'N', 8, 1)
+link=LinkSerial('espa2', 'COM2', 9600, 'N', 8, 1)
 servers.add(Server(link))
 
 servers.run()

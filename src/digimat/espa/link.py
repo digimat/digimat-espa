@@ -102,7 +102,7 @@ class LinkSerial(Link):
                 return True
         except:
             self.logger.exception('open()')
-            #self.logger.error('open(%s) error' % self._url)
+            # self.logger.error('open(%s) error' % self._url)
             self._serial=None
 
     def close(self):
@@ -137,4 +137,3 @@ class LinkSerial(Link):
 
 if __name__=='__main__':
     pass
-

@@ -12,7 +12,7 @@ class Notification(object):
     @property
     def source(self):
         return self._source
-    
+
     @property
     def name(self):
         return self._name
@@ -76,7 +76,7 @@ class NotificationCallToPager(Notification):
             pass
 
     def espaCharsetToUTF8(self, message):
-        #todo
+        # todo
         return message
 
     @property
