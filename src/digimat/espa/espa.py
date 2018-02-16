@@ -6,7 +6,7 @@ from threading import Thread
 from threading import Event
 from queue import Queue
 
-from notification import Notification, NotificationCallToPager, NotificationLinkTimeout
+from .notification import Notification, NotificationCallToPager, NotificationLinkTimeout
 
 # Communication Protocol ESPA 4.4.4
 # http://www.gscott.co.uk/ESPA.4.4.4/datablock.html
