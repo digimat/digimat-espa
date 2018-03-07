@@ -4,9 +4,9 @@ import logging.handlers
 
 from threading import Thread
 from threading import Event
-from Queue import Queue
+from queue import Queue
 
-from notification import Notification, NotificationCallToPager, NotificationLinkTimeout
+from .notification import Notification, NotificationCallToPager, NotificationLinkTimeout
 
 # Communication Protocol ESPA 4.4.4
 # http://www.gscott.co.uk/ESPA.4.4.4/datablock.html
@@ -109,7 +109,7 @@ class CommunicationChannel(object):
 
     def send(self, data):
         if data:
-            if isinstance(data, basestring):
+            if isinstance(data, str):
                 data=bytearray(data)
             self.logger.debug('TX[%s]' % self.dataToString(data))
             return self._link.write(data)
@@ -439,14 +439,14 @@ class MultiChannelServer(object):
             self._servers[server.name]=server
 
     def onNotification(self, notification):
-        print notification
+        print(notification)
         if notification.isName('calltopager'):
-            print "[%s]->paging(%s) with message <%s>..." % (notification.source,
+            print("[%s]->paging(%s) with message <%s>..." % (notification.source,
                 notification.callAddress,
-                notification.message)
+                notification.message))
 
     def servers(self):
-        return self._servers.values()
+        return list(self._servers.values())
 
     def run(self):
         if self._servers:
