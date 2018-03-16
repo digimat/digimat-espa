@@ -49,14 +49,13 @@ class NotificationCallToPager(Notification):
 
     def buildFromData(self, data):
         # http://www.gscott.co.uk/ESPA.4.4.4/datablock.html
-
         try:
-            self._message=self.espaCharsetToUTF8(data['1'])
+            self._callAddress=data['1']
         except:
             pass
 
         try:
-            self._callAddress=data['2']
+            self._message=self.espaCharsetToUTF8(data['2'])
         except:
             pass
 
