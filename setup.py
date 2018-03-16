@@ -12,7 +12,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='digimat.espa',
-    version='0.1.9',
+    version='0.1.11',
     description='Digimat ESPA 4.4.4',
     long_description=long_description,
     namespace_packages=['digimat'],

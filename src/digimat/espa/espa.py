@@ -115,7 +115,7 @@ class CommunicationChannel(object):
             return self._link.write(data)
 
     def sendChar(self, c):
-        self.send(bytearray(c, 'utf8'))
+        self.send(bytearray(c))
 
     def ack(self):
         self.logger.debug('>ACK')
@@ -204,7 +204,7 @@ class MessageServer(object):
                     self.setNextState()
                     break
                 else:
-                    self._inbuf.extend(c.encode())
+                    self._inbuf.extend(c)
         # --------------------------------------
         # wait for 'BCC'
         elif self._state==3:
@@ -223,7 +223,7 @@ class MessageServer(object):
     def decodeBuffer(self, buf):
         if buf:
             try:
-                (header, body)=buf.decode('ascii').split(ESPA_CHAR_STX)
+                (header, body)=buf.split(ESPA_CHAR_STX)
                 if header and body:
                     data={}
                     for record in body.split(ESPA_CHAR_RS):
@@ -248,14 +248,15 @@ class MessageServer(object):
 
 
 class Communicator(object):
-    def __init__(self, link, controlEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
+    def __init__(self, link, contolEquipmentAddress='1', pagingSystemAddress='2', logServer='localhost', logLevel=logging.DEBUG):
         logger=logging.getLogger("ESPA-SERVER:%s" % link.name)
         logger.setLevel(logLevel)
-        fileHandler = logging.FileHandler("%s.log" % link.name)
-        logger.addHandler(fileHandler)
+        socketHandler = logging.handlers.SocketHandler(logServer,
+            logging.handlers.DEFAULT_TCP_LOGGING_PORT)
+        logger.addHandler(socketHandler)
         self._logger=logger
 
-        self._controlEquipmentAddress=controlEquipmentAddress
+        self._controlEquipmentAddress=contolEquipmentAddress
         self._pagingSystemAddress=pagingSystemAddress
 
         self._channel=CommunicationChannel(link, self._logger)
@@ -445,7 +446,7 @@ class MultiChannelServer(object):
                 notification.message))
 
     def servers(self):
-        return self._servers.values()
+        return list(self._servers.values())
 
     def run(self):
         if self._servers:

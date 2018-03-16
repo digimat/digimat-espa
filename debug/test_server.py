@@ -3,11 +3,11 @@ from digimat.espa import LinkSerial, Server, MultiChannelServer
 
 class MyMultiChannelServer(MultiChannelServer):
     def onNotification(self, notification):
-        print( notification )
+        print(notification)
         if notification.isName('calltopager'):
-            print( "[%s]->paging(%s, %s)" % (notification.source,
+            print("[%s]->paging(%s, %s)" % (notification.source,
                  notification.callAddress,
-                 notification.message) )
+                 notification.message))
 
 
 servers=MyMultiChannelServer()
