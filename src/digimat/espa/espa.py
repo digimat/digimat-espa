@@ -115,7 +115,7 @@ class CommunicationChannel(object):
             return self._link.write(data)
 
     def sendChar(self, c):
-        self.send(bytearray(c))
+        self.send(bytearray(c, 'utf8'))
 
     def ack(self):
         self.logger.debug('>ACK')
