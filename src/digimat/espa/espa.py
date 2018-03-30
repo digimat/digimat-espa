@@ -204,7 +204,7 @@ class MessageServer(object):
                     self.setNextState()
                     break
                 else:
-                    self._inbuf.extend(c)
+                    self._inbuf.extend(c.encode())
         # --------------------------------------
         # wait for 'BCC'
         elif self._state==3:
@@ -223,7 +223,7 @@ class MessageServer(object):
     def decodeBuffer(self, buf):
         if buf:
             try:
-                (header, body)=buf.split(ESPA_CHAR_STX)
+                (header, body)=buf.decode('ascii').split(ESPA_CHAR_STX)
                 if header and body:
                     data={}
                     for record in body.split(ESPA_CHAR_RS):
